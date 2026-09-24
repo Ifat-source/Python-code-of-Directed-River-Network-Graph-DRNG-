@@ -1,0 +1,447 @@
+import os
+import pandas as pd
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import filedialog
+from matplotlib.lines import Line2D
+# 1. Select Excel File
+root = tk.Tk()
+root.withdraw()
+
+excel_file = filedialog.askopenfilename(
+    title="Select Water Level Station Excel File",
+    filetypes=[("Excel Files", "*.xlsx *.xls")]
+)
+
+if excel_file == "":
+    raise Exception("No Excel file selected!")
+
+output_folder = os.path.dirname(excel_file)
+# 2. Read Station Information
+stations = pd.read_excel(excel_file)
+
+print("\nOriginal Columns:")
+print(stations.columns)
+
+# Rename first two columns
+stations.columns = ["NodeID", "StationName"]
+
+print("\nStation Information:")
+print(stations)
+
+
+# 3. Edge List
+source = [
+    0, 0, 0, 0,
+    2, 2,
+    7,
+    0,
+    8,
+    4,
+    7,
+    7,
+    0,
+    7,
+    8,
+    4,
+    13,
+    13,
+    16,
+    16,
+    16,
+    16,
+    16
+]
+
+target = [
+    1, 2, 3, 4,
+    5, 6,
+    8,
+    9,
+    10,
+    10,
+    11,
+    12,
+    13,
+    13,
+    14,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+]
+
+distance = [
+    99, 53, 98, 90,
+    52, 39,
+    97,
+    206,
+    189,
+    204,
+    142,
+    32,
+    281,
+    204,
+    66,
+    97,
+    94,
+    121,
+    102,
+    187,
+    413,
+    186,
+    238
+]
+
+
+# 4. Normalize River Distance
+distance = np.array(distance)
+
+dmin = np.min(distance)
+dmax = np.max(distance)
+
+distance_norm = (distance - dmin) / (dmax - dmin)
+# 5. Create Edge Table
+edge_table = pd.DataFrame({
+    "Source": source,
+    "Target": target,
+    "Distance": distance,
+    "Normalized_Distance": np.round(distance_norm, 4)
+})
+# 6. Save Edge Table
+edge_file = os.path.join(
+    output_folder,
+    "River_Edges_Normalized.xlsx"
+)
+
+edge_table.to_excel(
+    edge_file,
+    index=False
+)
+
+print("\nEdge Table:")
+print(edge_table)
+# 7. Create Adjacency Matrix
+n = len(stations)
+
+adj = np.zeros((n, n), dtype=int)
+
+for s, t in zip(source, target):
+    adj[s, t] = 1
+
+
+# 8. Create Labels
+node_labels = [
+    f"{int(row.NodeID)}\n{row.StationName}"
+    for _, row in stations.iterrows()
+]
+# 9. Save Adjacency Matrix
+adjacency = pd.DataFrame(
+    adj,
+    index=node_labels,
+    columns=node_labels
+)
+
+adj_file = os.path.join(
+    output_folder,
+    "Adjacency_Matrix_22x22.xlsx"
+)
+
+adjacency.to_excel(adj_file)
+# 10. Create Directed Graph
+G = nx.DiGraph()
+# 11. Add Nodes
+for _, row in stations.iterrows():
+
+    G.add_node(
+        int(row["NodeID"]),
+        label=str(row["StationName"])
+    )
+# 12. Add Edges
+for s, t, d in zip(source, target, distance):
+
+    G.add_edge(
+        s,
+        t,
+        distance=d
+    )
+# 13. Automatically Classify Stations
+# Input/source station:
+# No upstream connection
+input_nodes = [
+    node for node in G.nodes()
+    if G.in_degree(node) == 0
+]
+
+
+# Output/target station:
+# No downstream connection
+output_nodes = [
+    node for node in G.nodes()
+    if G.out_degree(node) == 0
+]
+
+
+# Intermediate station:
+# Has both upstream and downstream connections
+intermediate_nodes = [
+    node for node in G.nodes()
+    if G.in_degree(node) > 0 and G.out_degree(node) > 0
+]
+# 14. Print Station Classification
+print("\n========================================")
+print("STATION CLASSIFICATION")
+print("========================================")
+
+print("\nInput / Source Stations:")
+print(input_nodes)
+
+print("\nIntermediate Stations:")
+print(intermediate_nodes)
+
+print("\nOutput / Target Stations:")
+print(output_nodes)
+# 15. Create Station Classification Table
+classification = []
+
+for node in G.nodes():
+
+    if node in input_nodes:
+        station_type = "Input / Source"
+
+    elif node in output_nodes:
+        station_type = "Output / Target"
+
+    else:
+        station_type = "Intermediate"
+
+    station_name = G.nodes[node]["label"]
+
+    classification.append({
+        "NodeID": node,
+        "StationName": station_name,
+        "StationType": station_type,
+        "Upstream_Connections": G.in_degree(node),
+        "Downstream_Connections": G.out_degree(node)
+    })
+
+
+classification_df = pd.DataFrame(classification)
+# 16. Save Station Classification
+classification_file = os.path.join(
+    output_folder,
+    "Station_Classification.xlsx"
+)
+
+classification_df.to_excel(
+    classification_file,
+    index=False
+)
+
+print("\nStation Classification:")
+print(classification_df)
+# 17. Graph Layout
+plt.figure(figsize=(32, 30))
+
+pos = nx.spring_layout(
+    G,
+    seed=100,
+    k=1.4
+)
+# 18. Draw Input / Source Stations
+nx.draw_networkx_nodes(
+    G,
+    pos,
+    nodelist=input_nodes,
+    node_color="skyblue",
+    node_size=3500,
+    edgecolors="black",
+    linewidths=2.0
+)
+# 19. Draw Intermediate Stations
+nx.draw_networkx_nodes(
+    G,
+    pos,
+    nodelist=intermediate_nodes,
+    node_color="yellow",
+    node_size=3500,
+    edgecolors="black",
+    linewidths=2.0
+)
+# 20. Draw Output / Target Stations
+nx.draw_networkx_nodes(
+    G,
+    pos,
+    nodelist=output_nodes,
+    node_color="lightgreen",
+    node_size=3500,
+    edgecolors="black",
+    linewidths=2.0
+)
+# 21. Draw Directed River Network
+nx.draw_networkx_edges(
+    G,
+    pos,
+    edge_color="black",
+    width=2.5,
+    arrows=True,
+    arrowstyle="-|>",
+    arrowsize=30,
+    connectionstyle="arc3,rad=0",
+    min_source_margin=10,
+    min_target_margin=30
+)
+# 22. Draw Station Names
+labels = {
+    node: data["label"]
+    for node, data in G.nodes(data=True)
+}
+
+nx.draw_networkx_labels(
+    G,
+    pos,
+    labels,
+    font_size=12,
+    font_weight="bold",
+    font_color="black"
+)
+# 23. Draw Distance Labels
+edge_labels = nx.get_edge_attributes(
+    G,
+    "distance"
+)
+
+for (u, v), label in edge_labels.items():
+
+    x1, y1 = pos[u]
+    x2, y2 = pos[v]
+
+    # Midpoint
+    xm = (x1 + x2) / 2
+    ym = (y1 + y2) / 2
+
+    # Direction of edge
+    dx = x2 - x1
+    dy = y2 - y1
+
+    length = np.sqrt(dx**2 + dy**2)
+
+    if length != 0:
+
+        dx /= length
+        dy /= length
+
+    # Perpendicular offset
+    offset = -0.02
+
+    x = xm - dy * offset
+    y = ym + dx * offset
+
+    plt.text(
+        x,
+        y,
+        str(label),
+        fontsize=15,
+        fontweight="bold",
+        ha="center",
+        va="center",
+        bbox=dict(
+            facecolor="white",
+            edgecolor="none",
+            pad=0.2
+        ),
+        zorder=10
+    )
+# 24. Create Legend / Indicator
+legend_elements = [
+
+    Line2D(
+        [0],
+        [0],
+        marker="o",
+        color="w",
+        label="Input / Source Station",
+        markerfacecolor="skyblue",
+        markeredgecolor="black",
+        markersize=18
+    ),
+
+    Line2D(
+        [0],
+        [0],
+        marker="o",
+        color="w",
+        label="Intermediate Station",
+        markerfacecolor="yellow",
+        markeredgecolor="black",
+        markersize=18
+    ),
+
+    Line2D(
+        [0],
+        [0],
+        marker="o",
+        color="w",
+        label="Output / Target Station",
+        markerfacecolor="darkgreen",
+        markeredgecolor="black",
+        markersize=18
+    )
+]
+
+
+plt.legend(
+    handles=legend_elements,
+    loc="center left",
+    bbox_to_anchor=(1.02, 0.5),
+    fontsize=16,
+    frameon=True,
+    framealpha=1,
+    edgecolor="black",
+    title="Station Type",
+    title_fontsize=18
+)
+# 25. Figure Title
+plt.title(
+    "Directed River Network Graph of Water Level Stations",
+    fontsize=22,
+    fontweight="bold",
+    pad=20
+)
+
+
+# Remove axes
+plt.axis("off")
+# 26. Save Figure
+figure_file = os.path.join(
+    output_folder,
+    "River_Graph_600dpi.png"
+)
+
+plt.savefig(
+    figure_file,
+    dpi=600,
+    bbox_inches="tight"
+)
+
+plt.show()
+# 27. Final Summary
+print("\n========================================")
+print("COMPLETED SUCCESSFULLY")
+print("========================================")
+
+print("\nGenerated Files:")
+print("-----------------------------")
+
+print("1.", edge_file)
+print("2.", adj_file)
+print("3.", classification_file)
+print("4.", figure_file)
+
+print("\nDone!")
